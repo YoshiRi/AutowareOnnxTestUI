@@ -1,0 +1,60 @@
+# Autoware ONNX Model Registry
+#
+# Each entry supports:
+#   onnx        : path to .onnx file (required)
+#   label       : path to label.txt — one class name per line (optional)
+#   color_map   : path to CSV with columns id,name,r,g,b (optional)
+#   param_files : dict of name -> path for additional parameter files
+#                 (anchor CSVs, prior-box .npy, voxel config YAML, etc.)
+#   params      : inline numeric / string parameters
+#
+# Paths can be absolute or relative to the repository root.
+
+image:
+  yolox:
+    onnx: /opt/autoware/mlmodels/yolox/yolox-sPlus-T4-960x960-pseudo-finetune.onnx
+    label: /opt/autoware/mlmodels/yolox/label.txt
+    params:
+      input_size: 960
+      strides: [8, 16, 32]
+
+  semantic_seg:
+    onnx: /opt/autoware/mlmodels/semantic_seg/model.onnx
+    color_map: config/semseg_color_map.csv
+    params:
+      input_size: [512, 512]
+      mean: [0.485, 0.456, 0.406]
+      std: [0.229, 0.224, 0.225]
+
+  traffic_light_classifier:
+    onnx: /opt/autoware/mlmodels/traffic_light_classifier/model.onnx
+    label: /opt/autoware/mlmodels/traffic_light_classifier/label.txt
+    params:
+      input_size: [224, 224]
+      mean: [0.485, 0.456, 0.406]
+      std: [0.229, 0.224, 0.225]
+
+pointcloud:
+  centerpoint:
+    onnx: /opt/autoware/mlmodels/centerpoint/model.onnx
+    label: /opt/autoware/mlmodels/centerpoint/label.txt
+    # CenterPoint uses a separate voxelization config file
+    param_files:
+      voxel_config: /opt/autoware/mlmodels/centerpoint/voxel_config.yaml
+    params:
+      voxel_size: [0.32, 0.32, 8.0]
+      point_cloud_range: [-76.8, -76.8, -4.0, 76.8, 76.8, 4.0]
+      max_points_per_voxel: 20
+      max_voxels: 40000
+
+  pointpillars:
+    onnx: /opt/autoware/mlmodels/pointpillars/model.onnx
+    label: /opt/autoware/mlmodels/pointpillars/label.txt
+    # PointPillars uses per-class anchor definitions
+    param_files:
+      anchor_config: /opt/autoware/mlmodels/pointpillars/anchors.csv
+    params:
+      voxel_size: [0.16, 0.16, 4.0]
+      point_cloud_range: [-76.8, -76.8, -2.0, 76.8, 76.8, 2.0]
+      max_points_per_pillar: 32
+      max_pillars: 12000

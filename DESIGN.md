@@ -64,54 +64,82 @@ AutowareOnnxTestUI/
 
 ### `ModelRunner` 抽象基底クラス (`models/base.py`)
 
-新モデルを追加する際はこのクラスを継承し、5つのメソッドを実装する。
+新モデルを追加する際はこのクラスを継承し、5つのメソッドを実装する。  
+各ステージの結果は `dict` として次のステージに渡される（メタデータを自然に引き回せる）。
 
 ```python
 class ModelRunner(ABC):
     @abstractmethod
-    def load(self, onnx_path: str) -> None:
-        """ONNXモデルをロードする"""
+    def load(self, config: dict) -> None:
+        """
+        ONNX モデルと全サポートファイルをロードする。
+        config キー (規約):
+          onnx        - .onnx ファイルパス (必須)
+          label       - label.txt パス (任意)
+          color_map   - カラーマップ CSV パス (任意)
+          param_files - name -> path の dict (アンカー, prior, config YAML 等)
+          params      - インライン数値/文字列パラメータの dict
+        """
 
     @abstractmethod
-    def preprocess(self, input_data) -> np.ndarray:
-        """入力データをモデル入力形式に変換する"""
+    def preprocess(self, input_data) -> dict:
+        """入力を推論用テンソルに変換する。'tensor' キーと前処理メタデータを含む dict を返す"""
 
     @abstractmethod
-    def run(self, preprocessed) -> Any:
-        """ONNXランタイムで推論を実行する"""
+    def infer(self, preprocess_result: dict) -> dict:
+        """ONNX 推論を実行する。preprocess の dict を受け取り 'outputs' キーを追加して返す"""
 
     @abstractmethod
-    def postprocess(self, outputs, **kwargs) -> Any:
-        """推論結果を人間が読める形式に変換する"""
+    def postprocess(self, infer_result: dict, **params) -> list:
+        """生出力を構造化された検出/分類結果リストに変換する"""
 
     @abstractmethod
-    def visualize(self, original_input, results) -> Any:
-        """結果を可視化した画像やFigureを返す"""
+    def visualize(self, original_input, results: list) -> np.ndarray:
+        """結果をレンダリングした RGB 画像 (np.ndarray) を返す"""
 ```
 
 ### `model_registry.yaml` の構造
+
+ONNXファイル以外に、アンカーCSV・configYAML・カラーマップ等の **パラメータファイル** も
+`param_files` キーで明示的に管理する。
 
 ```yaml
 image:
   yolox:
     onnx: /opt/autoware/mlmodels/yolox/yolox-sPlus-T4-960x960-pseudo-finetune.onnx
     label: /opt/autoware/mlmodels/yolox/label.txt
-    input_size: 960
+    params:
+      input_size: 960
+      strides: [8, 16, 32]
+
   semantic_seg:
     onnx: /opt/autoware/mlmodels/semantic_seg/model.onnx
     color_map: config/semseg_color_map.csv
-  traffic_light:
-    classifier_onnx: /opt/autoware/mlmodels/traffic_light/classifier.onnx
-    detector_onnx: /opt/autoware/mlmodels/traffic_light/detector.onnx
-    label: /opt/autoware/mlmodels/traffic_light/label.txt
+    params:
+      input_size: [512, 512]
+
+  traffic_light_classifier:
+    onnx: /opt/autoware/mlmodels/traffic_light_classifier/model.onnx
+    label: /opt/autoware/mlmodels/traffic_light_classifier/label.txt
+    params:
+      input_size: [224, 224]
 
 pointcloud:
   centerpoint:
     onnx: /opt/autoware/mlmodels/centerpoint/model.onnx
     label: /opt/autoware/mlmodels/centerpoint/label.txt
+    param_files:
+      voxel_config: /opt/autoware/mlmodels/centerpoint/voxel_config.yaml
+    params:
+      voxel_size: [0.32, 0.32, 8.0]
+
   pointpillars:
     onnx: /opt/autoware/mlmodels/pointpillars/model.onnx
     label: /opt/autoware/mlmodels/pointpillars/label.txt
+    param_files:
+      anchor_config: /opt/autoware/mlmodels/pointpillars/anchors.csv
+    params:
+      voxel_size: [0.16, 0.16, 4.0]
 ```
 
 ---
