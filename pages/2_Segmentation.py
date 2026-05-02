@@ -6,11 +6,11 @@ import cv2
 import numpy as np
 import streamlit as st
 import yaml
-from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models.image.semantic_seg import SemanticSegRunner
+from utils.input_source import render_input_source
 
 st.set_page_config(page_title="Segmentation", layout="wide")
 st.title("Semantic Segmentation")
@@ -28,18 +28,18 @@ def _load_registry() -> dict:
 registry = _load_registry()
 default_cfg = registry["image"]["semantic_seg"]
 
-# resolve relative color_map path against repo root
-_raw_color_map = default_cfg.get("color_map", "")
-_default_color_map = (
-    os.path.join(_ROOT, _raw_color_map)
-    if _raw_color_map and not os.path.isabs(_raw_color_map)
-    else _raw_color_map
+_raw_cmap = default_cfg.get("color_map", "")
+_default_cmap = (
+    os.path.join(_ROOT, _raw_cmap)
+    if _raw_cmap and not os.path.isabs(_raw_cmap)
+    else _raw_cmap
 )
 
-# --- Sidebar ---
 st.sidebar.title("Model Config")
-onnx_path = st.sidebar.text_input("ONNX Path", default_cfg.get("onnx", ""))
-color_map_path = st.sidebar.text_input("Color Map CSV", _default_color_map)
+onnx_path      = st.sidebar.text_input("ONNX Path",      default_cfg.get("onnx", ""))
+color_map_path = st.sidebar.text_input("Color Map CSV",  _default_cmap)
+
+st.sidebar.markdown("---")
 alpha = st.sidebar.slider("Overlay Alpha", 0.0, 1.0, 0.5, 0.05)
 
 
@@ -61,7 +61,6 @@ if not os.path.exists(onnx_path):
 
 runner = _load_model(onnx_path, color_map_path, default_cfg.get("params", {}))
 
-# Class legend
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Class Legend")
 for i, name in enumerate(runner.class_names):
@@ -71,21 +70,27 @@ for i, name in enumerate(runner.class_names):
         unsafe_allow_html=True,
     )
 
-# --- Main ---
-uploaded = st.file_uploader("Upload Image", type=["png", "jpg", "jpeg"])
+# --- Input source ---
+image_bgr = render_input_source(key="seg")
 
-if uploaded:
-    image_rgb = np.array(Image.open(uploaded).convert("RGB"))
-    image_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
-
+if image_bgr is not None:
     with st.spinner("Running inference…"):
         pre = runner.preprocess(image_bgr)
-        t0 = time.perf_counter()
+        t0  = time.perf_counter()
         inf = runner.infer(pre)
         elapsed_ms = (time.perf_counter() - t0) * 1000
-        results = runner.postprocess(inf)
+    st.session_state["seg_inf"] = {
+        "inf": inf,
+        "image_rgb": cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB),
+        "elapsed_ms": elapsed_ms,
+    }
 
-    overlay = runner.visualize(image_rgb, results, alpha=alpha)
+# Re-run postprocess/visualize so alpha slider updates instantly
+if cached := st.session_state.get("seg_inf"):
+    results   = runner.postprocess(cached["inf"])
+    overlay   = runner.visualize(cached["image_rgb"], results, alpha=alpha)
+    image_rgb = cached["image_rgb"]
+    elapsed_ms = cached["elapsed_ms"]
 
     col1, col2 = st.columns(2)
     with col1:

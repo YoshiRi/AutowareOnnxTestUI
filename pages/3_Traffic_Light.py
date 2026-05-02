@@ -6,11 +6,11 @@ import cv2
 import numpy as np
 import streamlit as st
 import yaml
-from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models.image.traffic_light import TrafficLightClassifierRunner
+from utils.input_source import render_input_source
 
 st.set_page_config(page_title="Traffic Light", layout="wide")
 st.title("Traffic Light Classifier")
@@ -28,17 +28,16 @@ def _load_registry() -> dict:
 registry = _load_registry()
 default_cfg = registry["image"]["traffic_light_classifier"]
 
-# --- Sidebar ---
 st.sidebar.title("Model Config")
-onnx_path = st.sidebar.text_input("ONNX Path", default_cfg.get("onnx", ""))
+onnx_path  = st.sidebar.text_input("ONNX Path",  default_cfg.get("onnx", ""))
 label_path = st.sidebar.text_input("Label Path", default_cfg.get("label", ""))
 
 st.sidebar.markdown("""
 ---
 **入力について**
 
-信号機を含む画像全体を渡すと正しく動作しません。
 信号機領域のみをクロップした画像を使用してください。
+Screen Capture の領域選択機能を使うと、画面上の信号機領域を直接切り出せます。
 """)
 
 
@@ -60,22 +59,27 @@ if not os.path.exists(onnx_path):
 
 runner = _load_model(onnx_path, label_path, default_cfg.get("params", {}))
 
-# --- Main ---
-uploaded = st.file_uploader("Upload Cropped Traffic Light Image", type=["png", "jpg", "jpeg"])
+# --- Input source ---
+image_bgr = render_input_source(key="tl")
 
-if uploaded:
-    image_rgb = np.array(Image.open(uploaded).convert("RGB"))
-    image_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
-
+if image_bgr is not None:
     with st.spinner("Running inference…"):
         pre = runner.preprocess(image_bgr)
-        t0 = time.perf_counter()
+        t0  = time.perf_counter()
         inf = runner.infer(pre)
         elapsed_ms = (time.perf_counter() - t0) * 1000
-        results = runner.postprocess(inf)
+    st.session_state["tl_inf"] = {
+        "inf": inf,
+        "image_rgb": cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB),
+        "elapsed_ms": elapsed_ms,
+    }
 
-    annotated = runner.visualize(image_rgb, results)
-    result = results[0]
+if cached := st.session_state.get("tl_inf"):
+    results    = runner.postprocess(cached["inf"])
+    annotated  = runner.visualize(cached["image_rgb"], results)
+    result     = results[0]
+    image_rgb  = cached["image_rgb"]
+    elapsed_ms = cached["elapsed_ms"]
 
     col1, col2 = st.columns(2)
     with col1:
@@ -83,10 +87,6 @@ if uploaded:
     with col2:
         st.image(annotated, caption=f"Result — {elapsed_ms:.1f} ms", use_container_width=True)
 
-    # Probability bar chart
     st.markdown("### Class Probabilities")
-    probs = result["probs"]
-    class_names = result["class_names"]
-    for i, (name, prob) in enumerate(zip(class_names, probs)):
-        bar_color = "normal" if i != result["class_id"] else "inverse"
+    for i, (name, prob) in enumerate(zip(result["class_names"], result["probs"])):
         st.progress(float(prob), text=f"{name}: {prob:.3f}")
