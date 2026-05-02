@@ -5,39 +5,28 @@ import time
 import cv2
 import numpy as np
 import streamlit as st
-import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models.image.semantic_seg import SemanticSegRunner
+from utils.config_loader import (
+    load_registry,
+    render_model_root_sidebar,
+    render_resolved_paths_expander,
+    resolve_model_config,
+)
 from utils.input_source import render_input_source
 
 st.set_page_config(page_title="Segmentation", layout="wide")
 st.title("Semantic Segmentation")
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_REGISTRY_PATH = os.path.join(_ROOT, "config", "model_registry.yaml")
+registry = load_registry()
 
-
-@st.cache_data
-def _load_registry() -> dict:
-    with open(_REGISTRY_PATH) as f:
-        return yaml.safe_load(f)
-
-
-registry = _load_registry()
-default_cfg = registry["image"]["semantic_seg"]
-
-_raw_cmap = default_cfg.get("color_map", "")
-_default_cmap = (
-    os.path.join(_ROOT, _raw_cmap)
-    if _raw_cmap and not os.path.isabs(_raw_cmap)
-    else _raw_cmap
-)
-
+# --- Sidebar ---
 st.sidebar.title("Model Config")
-onnx_path      = st.sidebar.text_input("ONNX Path",      default_cfg.get("onnx", ""))
-color_map_path = st.sidebar.text_input("Color Map CSV",  _default_cmap)
+model_root = render_model_root_sidebar(registry)
+cfg = resolve_model_config(registry["image"]["semantic_seg"], model_root)
+render_resolved_paths_expander(cfg)
 
 st.sidebar.markdown("---")
 alpha = st.sidebar.slider("Overlay Alpha", 0.0, 1.0, 0.5, 0.05)
@@ -54,12 +43,12 @@ def _load_model(onnx: str, color_map: str, params: dict) -> SemanticSegRunner:
     return runner
 
 
-if not os.path.exists(onnx_path):
-    st.warning(f"ONNX model not found: `{onnx_path}`")
-    st.info("Set the correct path in the sidebar or update `config/model_registry.yaml`.")
+if not os.path.exists(cfg["onnx"]):
+    st.warning(f"ONNX model not found: `{cfg['onnx']}`")
+    st.info("Set **Model Root** in the sidebar, or update `config/model_registry.yaml`.")
     st.stop()
 
-runner = _load_model(onnx_path, color_map_path, default_cfg.get("params", {}))
+runner = _load_model(cfg["onnx"], cfg.get("color_map", ""), cfg.get("params", {}))
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Class Legend")
@@ -85,11 +74,11 @@ if image_bgr is not None:
         "elapsed_ms": elapsed_ms,
     }
 
-# Re-run postprocess/visualize so alpha slider updates instantly
+# Re-run postprocess/visualize — alpha slider updates instantly
 if cached := st.session_state.get("seg_inf"):
-    results   = runner.postprocess(cached["inf"])
-    overlay   = runner.visualize(cached["image_rgb"], results, alpha=alpha)
-    image_rgb = cached["image_rgb"]
+    results    = runner.postprocess(cached["inf"])
+    overlay    = runner.visualize(cached["image_rgb"], results, alpha=alpha)
+    image_rgb  = cached["image_rgb"]
     elapsed_ms = cached["elapsed_ms"]
 
     col1, col2 = st.columns(2)

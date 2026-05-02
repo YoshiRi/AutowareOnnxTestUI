@@ -5,32 +5,28 @@ import time
 import cv2
 import numpy as np
 import streamlit as st
-import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models.image.traffic_light import TrafficLightClassifierRunner
+from utils.config_loader import (
+    load_registry,
+    render_model_root_sidebar,
+    render_resolved_paths_expander,
+    resolve_model_config,
+)
 from utils.input_source import render_input_source
 
 st.set_page_config(page_title="Traffic Light", layout="wide")
 st.title("Traffic Light Classifier")
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_REGISTRY_PATH = os.path.join(_ROOT, "config", "model_registry.yaml")
+registry = load_registry()
 
-
-@st.cache_data
-def _load_registry() -> dict:
-    with open(_REGISTRY_PATH) as f:
-        return yaml.safe_load(f)
-
-
-registry = _load_registry()
-default_cfg = registry["image"]["traffic_light_classifier"]
-
+# --- Sidebar ---
 st.sidebar.title("Model Config")
-onnx_path  = st.sidebar.text_input("ONNX Path",  default_cfg.get("onnx", ""))
-label_path = st.sidebar.text_input("Label Path", default_cfg.get("label", ""))
+model_root = render_model_root_sidebar(registry)
+cfg = resolve_model_config(registry["image"]["traffic_light_classifier"], model_root)
+render_resolved_paths_expander(cfg)
 
 st.sidebar.markdown("""
 ---
@@ -52,12 +48,12 @@ def _load_model(onnx: str, label: str, params: dict) -> TrafficLightClassifierRu
     return runner
 
 
-if not os.path.exists(onnx_path):
-    st.warning(f"ONNX model not found: `{onnx_path}`")
-    st.info("Set the correct path in the sidebar or update `config/model_registry.yaml`.")
+if not os.path.exists(cfg["onnx"]):
+    st.warning(f"ONNX model not found: `{cfg['onnx']}`")
+    st.info("Set **Model Root** in the sidebar, or update `config/model_registry.yaml`.")
     st.stop()
 
-runner = _load_model(onnx_path, label_path, default_cfg.get("params", {}))
+runner = _load_model(cfg["onnx"], cfg.get("label", ""), cfg.get("params", {}))
 
 # --- Input source ---
 image_bgr = render_input_source(key="tl")
@@ -88,5 +84,5 @@ if cached := st.session_state.get("tl_inf"):
         st.image(annotated, caption=f"Result — {elapsed_ms:.1f} ms", use_container_width=True)
 
     st.markdown("### Class Probabilities")
-    for i, (name, prob) in enumerate(zip(result["class_names"], result["probs"])):
+    for name, prob in zip(result["class_names"], result["probs"]):
         st.progress(float(prob), text=f"{name}: {prob:.3f}")
