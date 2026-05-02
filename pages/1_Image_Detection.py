@@ -7,40 +7,34 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import streamlit as st
-import yaml
-from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models.image.yolox import YoloxRunner
+from utils.config_loader import (
+    load_registry,
+    render_model_root_sidebar,
+    render_resolved_paths_expander,
+    resolve_model_config,
+)
+from utils.input_source import render_input_source
 from utils.visualization import class_color_map, sidebar_class_legend
 
 st.set_page_config(page_title="Image Detection", layout="wide")
 st.title("Image Detection — YOLOX")
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_REGISTRY_PATH = os.path.join(_ROOT, "config", "model_registry.yaml")
+registry = load_registry()
 
-
-@st.cache_data
-def _load_registry() -> dict:
-    with open(_REGISTRY_PATH) as f:
-        return yaml.safe_load(f)
-
-
-registry = _load_registry()
-default_cfg = registry["image"]["yolox"]
-
-# --- Sidebar: model paths ---
+# --- Sidebar ---
 st.sidebar.title("Model Config")
-onnx_path = st.sidebar.text_input("ONNX Path", default_cfg.get("onnx", ""))
-label_path = st.sidebar.text_input("Label Path", default_cfg.get("label", ""))
+model_root = render_model_root_sidebar(registry)
+cfg = resolve_model_config(registry["image"]["yolox"], model_root)
+render_resolved_paths_expander(cfg)
 
-# --- Sidebar: inference params ---
 st.sidebar.markdown("---")
-conf_th = st.sidebar.slider("Confidence Threshold", 0.0, 1.0, 0.3, 0.01)
-nms_th = st.sidebar.slider("NMS Threshold", 0.0, 1.0, 0.45, 0.01)
-box_thickness = st.sidebar.slider("Box Thickness", 1, 10, 2)
+conf_th       = st.sidebar.slider("Confidence Threshold", 0.0, 1.0, 0.3,  0.01)
+nms_th        = st.sidebar.slider("NMS Threshold",        0.0, 1.0, 0.45, 0.01)
+box_thickness = st.sidebar.slider("Box Thickness",        1,   10,  2)
 
 
 @st.cache_resource
@@ -50,47 +44,48 @@ def _load_model(onnx: str, label: str, params: dict) -> YoloxRunner:
     return runner
 
 
-# Guard: check files exist before loading
-if not os.path.exists(onnx_path):
-    st.warning(f"ONNX model not found: `{onnx_path}`")
-    st.info("Set the correct path in the sidebar or update `config/model_registry.yaml`.")
+if not os.path.exists(cfg["onnx"]):
+    st.warning(f"ONNX model not found: `{cfg['onnx']}`")
+    st.info("Set **Model Root** in the sidebar, or update `config/model_registry.yaml`.")
+    st.stop()
+if not os.path.exists(cfg["label"]):
+    st.warning(f"Label file not found: `{cfg['label']}`")
     st.stop()
 
-if not os.path.exists(label_path):
-    st.warning(f"Label file not found: `{label_path}`")
-    st.stop()
-
-runner = _load_model(onnx_path, label_path, default_cfg.get("params", {}))
+runner = _load_model(cfg["onnx"], cfg["label"], cfg.get("params", {}))
 colors = class_color_map(len(runner.class_names))
 sidebar_class_legend(st, runner.class_names, colors)
 
-# --- Main: upload and infer ---
-uploaded = st.file_uploader("Upload Image", type=["png", "jpg", "jpeg"])
+# --- Input source ---
+image_bgr = render_input_source(key="det")
 
-if uploaded:
-    image_rgb = np.array(Image.open(uploaded).convert("RGB"))
-    image_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
-
+if image_bgr is not None:
     with st.spinner("Running inference…"):
         pre = runner.preprocess(image_bgr)
-        t0 = time.perf_counter()
+        t0  = time.perf_counter()
         inf = runner.infer(pre)
         elapsed_ms = (time.perf_counter() - t0) * 1000
-        results = runner.postprocess(inf, conf_th=conf_th, nms_th=nms_th)
+    st.session_state["det_inf"] = {
+        "inf": inf,
+        "image_rgb": cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB),
+        "elapsed_ms": elapsed_ms,
+    }
 
-    annotated = runner.visualize(image_rgb, results, colors=colors, thickness=box_thickness)
+# Re-run postprocess/visualize on every rerun — threshold sliders update instantly
+if cached := st.session_state.get("det_inf"):
+    results    = runner.postprocess(cached["inf"], conf_th=conf_th, nms_th=nms_th)
+    annotated  = runner.visualize(cached["image_rgb"], results, colors=colors, thickness=box_thickness)
+    image_rgb  = cached["image_rgb"]
+    elapsed_ms = cached["elapsed_ms"]
 
     col1, col2 = st.columns(2)
     with col1:
         st.image(image_rgb, caption="Input", use_container_width=True)
     with col2:
-        st.image(
-            annotated,
-            caption=f"{len(results)} detections — {elapsed_ms:.1f} ms",
-            use_container_width=True,
-        )
+        st.image(annotated,
+                 caption=f"{len(results)} detections — {elapsed_ms:.1f} ms",
+                 use_container_width=True)
 
-    # Score distribution chart (post-NMS)
     if results:
         class_score_map: dict = defaultdict(list)
         for det in results:
@@ -107,7 +102,8 @@ if uploaded:
                 continue
             centers = (edges[:-1] + edges[1:]) / 2
             r, g, b = colors.get(cls_id, (200, 200, 200))
-            ax.plot(centers, hist / hist.sum(), label=runner.class_names[cls_id],
+            ax.plot(centers, hist / hist.sum(),
+                    label=runner.class_names[cls_id],
                     color=(r / 255, g / 255, b / 255))
             plotted = True
 
