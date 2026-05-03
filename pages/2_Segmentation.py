@@ -12,6 +12,7 @@ from models.image.semantic_seg import SemanticSegRunner
 from utils.config_loader import (
     load_registry,
     render_model_root_sidebar,
+    render_onnx_selector,
     render_resolved_paths_expander,
     resolve_model_config,
 )
@@ -25,11 +26,16 @@ registry = load_registry()
 # --- Sidebar ---
 st.sidebar.title("Model Config")
 model_root = render_model_root_sidebar(registry)
-cfg = resolve_model_config(registry["image"]["semantic_seg"], model_root)
-render_resolved_paths_expander(cfg)
+cfg        = resolve_model_config(registry["image"]["semantic_seg"], model_root)
+onnx_path  = render_onnx_selector(cfg["model_dir"], key="seg_onnx")
+render_resolved_paths_expander(cfg, selected_onnx=onnx_path)
 
 st.sidebar.markdown("---")
 alpha = st.sidebar.slider("Overlay Alpha", 0.0, 1.0, 0.5, 0.05)
+
+if onnx_path is None:
+    st.info("Set **Model Root** in the sidebar to locate the model directory.")
+    st.stop()
 
 
 @st.cache_resource
@@ -43,12 +49,7 @@ def _load_model(onnx: str, color_map: str, params: dict) -> SemanticSegRunner:
     return runner
 
 
-if not os.path.exists(cfg["onnx"]):
-    st.warning(f"ONNX model not found: `{cfg['onnx']}`")
-    st.info("Set **Model Root** in the sidebar, or update `config/model_registry.yaml`.")
-    st.stop()
-
-runner = _load_model(cfg["onnx"], cfg.get("color_map", ""), cfg.get("params", {}))
+runner = _load_model(onnx_path, cfg.get("color_map", ""), cfg.get("params", {}))
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Class Legend")
