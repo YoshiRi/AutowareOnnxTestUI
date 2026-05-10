@@ -18,6 +18,9 @@ Usage:
   # Download specific groups only
   uv run python scripts/download_models.py --models tensorrt_yolox traffic_light_classifier
 
+  # Download public sample images for testing (stored in <project-root>/samples/)
+  uv run python scripts/download_models.py --samples
+
 The destination for each file is: <model-root>/<group>/<filename>
 This matches the model_dir layout expected by model_registry.yaml.
 """
@@ -28,6 +31,9 @@ import os
 import sys
 import urllib.request
 from pathlib import Path
+
+_REPO_ROOT = Path(__file__).parent.parent
+_SAMPLES_DIR = _REPO_ROOT / "samples"
 
 # ---------------------------------------------------------------------------
 # Model catalogue
@@ -117,8 +123,52 @@ MODELS: dict[str, list[dict]] = {
 
 
 # ---------------------------------------------------------------------------
+# Sample images for pipeline testing (no SHA-256 — public, may change)
+# ---------------------------------------------------------------------------
+
+SAMPLE_IMAGES: list[dict] = [
+    {
+        "file": "bus.jpg",
+        "url": "https://raw.githubusercontent.com/ultralytics/assets/main/bus.jpg",
+        "desc": "Street scene with bus and pedestrians (YOLOX / detection test)",
+    },
+    {
+        "file": "dog.jpg",
+        "url": "https://raw.githubusercontent.com/Megvii-BaseDetection/YOLOX/main/assets/dog.jpg",
+        "desc": "Dog photo — YOLOX official sample",
+    },
+    {
+        "file": "traffic_light.jpg",
+        "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ae/Stoplight_in_Sequim%2C_Washington.jpg/320px-Stoplight_in_Sequim%2C_Washington.jpg",
+        "desc": "Traffic light crop for classifier test",
+    },
+]
+
+
+# ---------------------------------------------------------------------------
 # Core helpers
 # ---------------------------------------------------------------------------
+
+def download_file_no_verify(url: str, dest: Path) -> str:
+    """Download url → dest without checksum.  Returns "ok", "downloaded", or "failed"."""
+    if dest.exists():
+        print(f"  ✅ already present  {dest.name}")
+        return "ok"
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(dest.suffix + ".tmp")
+    try:
+        urllib.request.urlretrieve(url, tmp, reporthook=_make_progress_hook(dest.name))
+        print()
+    except Exception as exc:
+        tmp.unlink(missing_ok=True)
+        print(f"\n  ❌ download error: {exc}")
+        return "failed"
+
+    tmp.rename(dest)
+    print(f"  ✅ saved  {dest}")
+    return "downloaded"
+
 
 def sha256_of(path: Path) -> str:
     h = hashlib.sha256()
@@ -184,6 +234,23 @@ def download_file(url: str, dest: Path, expected_sha256: str) -> str:
 # CLI
 # ---------------------------------------------------------------------------
 
+def cmd_samples(samples_dir: Path) -> None:
+    print(f"Sample image dir : {samples_dir}\n")
+    counts = {"downloaded": 0, "ok": 0, "failed": 0}
+    for entry in SAMPLE_IMAGES:
+        dest = samples_dir / entry["file"]
+        result = download_file_no_verify(entry["url"], dest)
+        counts[result] = counts.get(result, 0) + 1
+    print(
+        f"\nDone.  "
+        f"{counts['downloaded']} downloaded  "
+        f"{counts['ok']} already present  "
+        f"{counts['failed']} failed"
+    )
+    if counts["failed"]:
+        sys.exit(1)
+
+
 def cmd_list() -> None:
     print("Available model groups:\n")
     for group, files in MODELS.items():
@@ -236,10 +303,24 @@ def main() -> None:
         help=f"Groups to download: {', '.join(MODELS)}. Omit to download all.",
     )
     parser.add_argument("--list", action="store_true", help="List models and exit")
+    parser.add_argument(
+        "--samples",
+        nargs="?",
+        const=str(_SAMPLES_DIR),
+        metavar="DIR",
+        help=(
+            "Download public sample images for pipeline testing. "
+            f"Default dir: {_SAMPLES_DIR}"
+        ),
+    )
     args = parser.parse_args()
 
     if args.list:
         cmd_list()
+        return
+
+    if args.samples is not None:
+        cmd_samples(Path(args.samples))
         return
 
     groups = args.models or list(MODELS.keys())
