@@ -14,6 +14,7 @@ from models.image.yolox import YoloxRunner
 from utils.config_loader import (
     load_registry,
     render_model_root_sidebar,
+    render_onnx_selector,
     render_resolved_paths_expander,
     resolve_model_config,
 )
@@ -28,13 +29,21 @@ registry = load_registry()
 # --- Sidebar ---
 st.sidebar.title("Model Config")
 model_root = render_model_root_sidebar(registry)
-cfg = resolve_model_config(registry["image"]["yolox"], model_root)
-render_resolved_paths_expander(cfg)
+cfg        = resolve_model_config(registry["image"]["yolox"], model_root)
+onnx_path  = render_onnx_selector(cfg["model_dir"], key="det_onnx")
+render_resolved_paths_expander(cfg, selected_onnx=onnx_path)
 
 st.sidebar.markdown("---")
 conf_th       = st.sidebar.slider("Confidence Threshold", 0.0, 1.0, 0.3,  0.01)
 nms_th        = st.sidebar.slider("NMS Threshold",        0.0, 1.0, 0.45, 0.01)
 box_thickness = st.sidebar.slider("Box Thickness",        1,   10,  2)
+
+if onnx_path is None:
+    st.info("Set **Model Root** in the sidebar to locate the model directory.")
+    st.stop()
+if not os.path.exists(cfg.get("label", "")):
+    st.warning(f"Label file not found: `{cfg.get('label')}`")
+    st.stop()
 
 
 @st.cache_resource
@@ -44,15 +53,7 @@ def _load_model(onnx: str, label: str, params: dict) -> YoloxRunner:
     return runner
 
 
-if not os.path.exists(cfg["onnx"]):
-    st.warning(f"ONNX model not found: `{cfg['onnx']}`")
-    st.info("Set **Model Root** in the sidebar, or update `config/model_registry.yaml`.")
-    st.stop()
-if not os.path.exists(cfg["label"]):
-    st.warning(f"Label file not found: `{cfg['label']}`")
-    st.stop()
-
-runner = _load_model(cfg["onnx"], cfg["label"], cfg.get("params", {}))
+runner = _load_model(onnx_path, cfg["label"], cfg.get("params", {}))
 colors = class_color_map(len(runner.class_names))
 sidebar_class_legend(st, runner.class_names, colors)
 

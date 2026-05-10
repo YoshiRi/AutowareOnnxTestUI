@@ -4,32 +4,36 @@
 #              Overridable from the UI sidebar (persisted in session_state).
 #
 # Path resolution rules:
-#   onnx, label, param_files entries
+#   model_dir, label, param_files entries
 #     → joined with model_root when relative
 #   color_map
 #     → joined with the repository root when relative
 #   Absolute paths are used as-is regardless of model_root.
+#
+# ONNX file selection:
+#   model_dir points to the directory; the UI lists all .onnx files inside
+#   and lets the user pick one.  No onnx key is needed in the registry.
 
 model_root: /opt/autoware/mlmodels
 
 image:
   yolox:
-    onnx: yolox/yolox-sPlus-T4-960x960-pseudo-finetune.onnx
+    model_dir: yolox
     label: yolox/label.txt
     params:
       input_size: 960
       strides: [8, 16, 32]
 
   semantic_seg:
-    onnx: semantic_seg/model.onnx
-    color_map: config/semseg_color_map.csv   # repo-relative, not under model_root
+    # Multi-head model co-located with YOLOX — same directory, same .onnx file.
+    # Preprocessing normalization (mean/std) to be confirmed during validation.
+    model_dir: yolox
+    color_map: config/semseg_color_map.csv
     params:
-      input_size: [512, 512]
-      mean: [0.485, 0.456, 0.406]
-      std: [0.229, 0.224, 0.225]
+      input_size: 960
 
   traffic_light_classifier:
-    onnx: traffic_light_classifier/model.onnx
+    model_dir: traffic_light_classifier
     label: traffic_light_classifier/label.txt
     params:
       input_size: [224, 224]
@@ -38,7 +42,7 @@ image:
 
 pointcloud:
   centerpoint:
-    onnx: centerpoint/model.onnx
+    model_dir: centerpoint
     label: centerpoint/label.txt
     param_files:
       voxel_config: centerpoint/voxel_config.yaml
@@ -49,7 +53,7 @@ pointcloud:
       max_voxels: 40000
 
   pointpillars:
-    onnx: pointpillars/model.onnx
+    model_dir: pointpillars
     label: pointpillars/label.txt
     param_files:
       anchor_config: pointpillars/anchors.csv

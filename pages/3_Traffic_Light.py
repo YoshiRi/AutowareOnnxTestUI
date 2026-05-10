@@ -12,6 +12,7 @@ from models.image.traffic_light import TrafficLightClassifierRunner
 from utils.config_loader import (
     load_registry,
     render_model_root_sidebar,
+    render_onnx_selector,
     render_resolved_paths_expander,
     resolve_model_config,
 )
@@ -25,8 +26,9 @@ registry = load_registry()
 # --- Sidebar ---
 st.sidebar.title("Model Config")
 model_root = render_model_root_sidebar(registry)
-cfg = resolve_model_config(registry["image"]["traffic_light_classifier"], model_root)
-render_resolved_paths_expander(cfg)
+cfg        = resolve_model_config(registry["image"]["traffic_light_classifier"], model_root)
+onnx_path  = render_onnx_selector(cfg["model_dir"], key="tl_onnx")
+render_resolved_paths_expander(cfg, selected_onnx=onnx_path)
 
 st.sidebar.markdown("""
 ---
@@ -35,6 +37,10 @@ st.sidebar.markdown("""
 信号機領域のみをクロップした画像を使用してください。
 Screen Capture の領域選択機能を使うと、画面上の信号機領域を直接切り出せます。
 """)
+
+if onnx_path is None:
+    st.info("Set **Model Root** in the sidebar to locate the model directory.")
+    st.stop()
 
 
 @st.cache_resource
@@ -48,12 +54,7 @@ def _load_model(onnx: str, label: str, params: dict) -> TrafficLightClassifierRu
     return runner
 
 
-if not os.path.exists(cfg["onnx"]):
-    st.warning(f"ONNX model not found: `{cfg['onnx']}`")
-    st.info("Set **Model Root** in the sidebar, or update `config/model_registry.yaml`.")
-    st.stop()
-
-runner = _load_model(cfg["onnx"], cfg.get("label", ""), cfg.get("params", {}))
+runner = _load_model(onnx_path, cfg.get("label", ""), cfg.get("params", {}))
 
 # --- Input source ---
 image_bgr = render_input_source(key="tl")
