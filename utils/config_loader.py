@@ -16,9 +16,11 @@ This handles model versioning / filename changes without touching the registry.
 
 Resolution rules
 ----------------
-  model_dir, label, param_files entries  →  joined with model_root (if relative)
-  color_map                               →  joined with repo root  (if relative)
-  Any absolute path                       →  used as-is
+  model_dir, label, color_map, param_files entries  →  joined with model_root (if relative)
+  Any absolute path                                  →  used as-is
+
+color_map is now resolved against model_root (not repo root) because the
+downloaded semseg_color_map.csv lives inside tensorrt_yolox/ under model_root.
 """
 
 import glob
@@ -30,10 +32,8 @@ import yaml
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REGISTRY_PATH = os.path.join(_REPO_ROOT, "config", "model_registry.yaml")
 
-# Keys resolved against model_root
-_MODEL_ROOT_KEYS: frozenset[str] = frozenset({"model_dir", "label"})
-# Keys resolved against repo root
-_REPO_ROOT_KEYS: frozenset[str] = frozenset({"color_map"})
+# All file-path keys resolved against model_root
+_MODEL_ROOT_KEYS: frozenset[str] = frozenset({"model_dir", "label", "color_map"})
 
 
 @st.cache_data
@@ -64,10 +64,6 @@ def resolve_model_config(cfg: dict, model_root: str) -> dict:
             k: _join(model_root, v)
             for k, v in resolved["param_files"].items()
         }
-
-    for key in _REPO_ROOT_KEYS:
-        if key in resolved:
-            resolved[key] = _join(_REPO_ROOT, resolved[key])
 
     return resolved
 

@@ -2,63 +2,75 @@
 #
 # model_root : root directory under which all model subdirectories live.
 #              Overridable from the UI sidebar (persisted in session_state).
+#              Can also be set via the AUTOWARE_MODEL_ROOT environment variable.
 #
 # Path resolution rules:
-#   model_dir, label, param_files entries
+#   model_dir, label, color_map, param_files entries
 #     → joined with model_root when relative
-#   color_map
-#     → joined with the repository root when relative
 #   Absolute paths are used as-is regardless of model_root.
 #
 # ONNX file selection:
 #   model_dir points to the directory; the UI lists all .onnx files inside
-#   and lets the user pick one.  No onnx key is needed in the registry.
+#   and lets the user pick one.
+#
+# Download models with:
+#   uv run python scripts/download_models.py --model-root <path>
 
 model_root: /opt/autoware/mlmodels
 
 image:
   yolox:
-    model_dir: yolox
-    label: yolox/label.txt
+    # Detection-only model.  Multi-head (det + semseg) model is also in this dir.
+    model_dir: tensorrt_yolox
+    label: tensorrt_yolox/label.txt
     params:
       input_size: 960
       strides: [8, 16, 32]
 
   semantic_seg:
-    # Multi-head model co-located with YOLOX — same directory, same .onnx file.
-    # Preprocessing normalization (mean/std) to be confirmed during validation.
-    model_dir: yolox
-    color_map: config/semseg_color_map.csv
+    # Same directory as yolox — use yolox-sPlus-opt-pseudoV2-T4-960x960-T4-seg16cls.onnx
+    # Preprocessing (normalization) to be confirmed during validation.
+    model_dir: tensorrt_yolox
+    color_map: tensorrt_yolox/semseg_color_map.csv
     params:
       input_size: 960
 
   traffic_light_classifier:
     model_dir: traffic_light_classifier
-    label: traffic_light_classifier/label.txt
+    label: traffic_light_classifier/lamp_labels.txt
+    param_files:
+      ml_param: traffic_light_classifier/lamp_recognizer_ml.param.yaml
     params:
       input_size: [224, 224]
       mean: [0.485, 0.456, 0.406]
       std: [0.229, 0.224, 0.225]
 
+  traffic_light_fine_detector:
+    model_dir: traffic_light_fine_detector
+    label: traffic_light_fine_detector/tlr_labels.txt
+    params:
+      input_size: 960
+      strides: [8, 16, 32]
+
 pointcloud:
   centerpoint:
-    model_dir: centerpoint
-    label: centerpoint/label.txt
+    model_dir: lidar_centerpoint
+    label: lidar_centerpoint/label.txt
     param_files:
-      voxel_config: centerpoint/voxel_config.yaml
+      ml_param: lidar_centerpoint/centerpoint_ml_package.param.yaml
+      class_remap: lidar_centerpoint/detection_class_remapper.param.yaml
     params:
       voxel_size: [0.32, 0.32, 8.0]
       point_cloud_range: [-76.8, -76.8, -4.0, 76.8, 76.8, 4.0]
       max_points_per_voxel: 20
       max_voxels: 40000
 
-  pointpillars:
-    model_dir: pointpillars
-    label: pointpillars/label.txt
+  transfusion:
+    model_dir: lidar_transfusion
+    label: lidar_transfusion/label.txt
     param_files:
-      anchor_config: pointpillars/anchors.csv
+      ml_param: lidar_transfusion/transfusion_ml_package.param.yaml
+      class_remap: lidar_transfusion/detection_class_remapper.param.yaml
     params:
-      voxel_size: [0.16, 0.16, 4.0]
-      point_cloud_range: [-76.8, -76.8, -2.0, 76.8, 76.8, 2.0]
-      max_points_per_pillar: 32
-      max_pillars: 12000
+      voxel_size: [0.32, 0.32, 8.0]
+      point_cloud_range: [-76.8, -76.8, -4.0, 76.8, 76.8, 4.0]
