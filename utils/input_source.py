@@ -14,25 +14,32 @@ Callers should cache inference results in st.session_state so results
 persist while the user adjusts sliders or the crop region.
 
 Sources:
-  File Upload   — st.file_uploader (immediate on upload)
-  Camera        — st.camera_input  (immediate on capture)
+  File Upload    — st.file_uploader (immediate on upload)
+  Camera         — st.camera_input  (immediate on capture)
   Screen Capture — mss screenshot + streamlit-cropper region selector;
                    returns image only when the user clicks ▶ Run
+  Sample         — pre-downloaded images in <project-root>/samples/;
+                   run `uv run python scripts/download_models.py --samples`
 """
 
+import glob
 import io
+import os
 
 import cv2
 import numpy as np
 import streamlit as st
 from PIL import Image
 
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_SAMPLES_DIR = os.path.join(_REPO_ROOT, "samples")
+
 
 def render_input_source(key: str = "img") -> np.ndarray | None:
     """Render source selector and return BGR image when ready, else None."""
     source = st.radio(
         "Input source",
-        ["File Upload", "Camera", "Screen Capture"],
+        ["File Upload", "Camera", "Screen Capture", "Sample"],
         horizontal=True,
         key=f"{key}_source",
     )
@@ -41,7 +48,9 @@ def render_input_source(key: str = "img") -> np.ndarray | None:
         return _file_upload(key)
     if source == "Camera":
         return _camera(key)
-    return _screen_capture(key)
+    if source == "Screen Capture":
+        return _screen_capture(key)
+    return _sample_image(key)
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +172,48 @@ def _region_selector(screenshot: Image.Image, key: str) -> Image.Image | None:
         st.warning("Right > Left、Bottom > Top になるように設定してください。")
         return None
     return screenshot.crop((left, top, right, bottom))
+
+
+# ---------------------------------------------------------------------------
+# Sample images
+# ---------------------------------------------------------------------------
+
+def _sample_image(key: str) -> np.ndarray | None:
+    """Pick from pre-downloaded sample images in <project-root>/samples/."""
+    image_files = sorted(
+        glob.glob(os.path.join(_SAMPLES_DIR, "*.jpg"))
+        + glob.glob(os.path.join(_SAMPLES_DIR, "*.jpeg"))
+        + glob.glob(os.path.join(_SAMPLES_DIR, "*.png"))
+    )
+
+    if not image_files:
+        st.info(
+            "No sample images found. Run:\n"
+            "```\nuv run python scripts/download_models.py --samples\n```"
+        )
+        return None
+
+    selected = st.selectbox(
+        "Sample image",
+        image_files,
+        format_func=os.path.basename,
+        key=f"{key}_sample",
+    )
+
+    if selected is None:
+        return None
+
+    img = cv2.imread(selected)
+    if img is None:
+        st.error(f"Failed to read image: `{selected}`")
+        return None
+
+    st.image(
+        cv2.cvtColor(img, cv2.COLOR_BGR2RGB),
+        caption=os.path.basename(selected),
+        use_container_width=True,
+    )
+    return img
 
 
 # ---------------------------------------------------------------------------
